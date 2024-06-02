@@ -710,3 +710,122 @@ There are several levels of caching in Hibernate:
 
 **NOTE:** Ehcache has not received updates since 2022 and is no longer actively maintained. To ensure continued support
 and compatibility, consider switching to alternative cache providers.
+
+## Hibernate Dirty Checking:
+
+Hibernate dirty checking mechanism is a key feature that helps hibernate to manage changes to persistent objects. This
+helps Hibernate optimize database queries so that only the fields that have changed are updated.
+
+Here's how it works internally:
+
+- **Persistent Object Tracking**: When an object is associated with a Hibernate session, it becomes a managed entity.
+  Hibernate keeps track of these managed entities using an internal data structure called the `Persistence Context`.
+
+- **Snapshot of Original State**: When an entity is loaded into the Persistence Context, Hibernate takes a snapshot of
+  its state. This snapshot represents the object's original state when it was retrieved from or saved to the database.
+
+- **Detecting Changes**: As the application modifies the entity's properties, Hibernate compares the current state of
+  the entity with its snapshot to detect any changes. This process is known as dirty checking.
+
+- **Automatic Updates**: When Hibernate detects that an entity's state has changed, it marks the entity as "dirty." This
+  means that the entity needs to be synchronized with the database to reflect the changes. Hibernate automatically
+  generates the necessary SQL statements to update the database with the modified state of the entity.
+
+- **Optimization**: Hibernate employs various optimizations to minimize the overhead of dirty checking. For example, it
+  may use lazy loading to defer loading related entities until they are actually needed, reducing the number of objects
+  that need to be tracked and checked for changes.
+
+- **Transaction Boundary**: Dirty checking occurs within the scope of a transaction. When a transaction is committed,
+  Hibernate flushes the changes to the database, ensuring that the database remains consistent with the changes made to
+  the managed entities. Even after the transaction is committed, Hibernate still keeps track of the entities in its
+  Persistence Context. This means that if any further changes are made to these entities outside a transaction,
+  Hibernate will continue to perform dirty checking on them as necessary.
+
+- **Session Persistence**: Hibernate dirty checking mechanism operates within the context of a Hibernate Session, which
+  typically corresponds to a database transaction. However, Hibernate sessions can be configured to extend beyond a
+  single transaction, allowing dirty checking to continue across multiple transactions within the same session (as
+  mentioned in above point).
+
+NOTE: Last two points (Transaction Boundary and Session Persistence) might be confusing but this is one of the most
+important concept in Hibernate. Consider following example to understand above points better.
+
+```java
+public static void main(String[] args) {
+    final SessionFactory sessionFactory = getSessionFactory();
+    final Session session = sessionFactory.openSession();
+
+    final Student student = getStudent(); // student object is in Transient state
+
+    session.beginTransaction();
+    session.persist(student);   // student object is in Persistent state
+    LOGGER.info("before committing first transaction");
+    session.getTransaction().commit();
+    LOGGER.info("first transaction committed");
+
+    // even after prev transaction is committed, hibernate will still track student object for dirty checking mechanism
+    LOGGER.info("student after first transaction: {}", session.get(Student.class, 1));
+    student.setTeam(UUID.randomUUID().toString());
+
+    // changes are reflected in persistent context, so we would get updated value but value is not updated in database
+    LOGGER.info("student after first transaction after making changes: {}", session.get(Student.class, 1));
+
+    /*
+     * since, we didn't perform any new transaction, no changed would be reflected back to database.
+     * But, if we start any transaction within same session then these changes made after prev transaction would be updated to database.
+     *
+     * For example, we're starting a new empty transaction
+     * */
+    LOGGER.info("starting second transaction");
+    session.beginTransaction();
+    LOGGER.info("before committing second transaction");
+    session.getTransaction().commit();
+    LOGGER.info("second transaction committed");
+
+    /*
+     * after committing second transaction, all changes made to object would be synced with database
+     * because object is in persistent state. Now, make object detached from session.
+     * */
+
+    session.detach(student);
+    LOGGER.info("student after object detach: {}", session.get(Student.class, 1));
+
+    student.setTeam("Team Original");
+
+    // we will get object without above changes because student object is detached from session
+    LOGGER.info("student after object detach update: {}", session.get(Student.class, 1));
+
+    session.beginTransaction();
+    session.getTransaction().commit();
+
+    LOGGER.info("student after object detach update transaction: {}", session.get(Student.class, 1));
+
+    session.close();
+    sessionFactory.close();
+}
+```
+
+Output of above code would be:
+
+```text
+Hibernate: insert into student (name,team) values (?,?)
+2024-06-02 23:56:19.630 [main] DirtyCheckingExample.main - before committing first transaction
+2024-06-02 23:56:19.637 [main] DirtyCheckingExample.main - first transaction committed
+2024-06-02 23:56:19.641 [main] DirtyCheckingExample.main - student after first transaction: Student(id=1, name=John Doe, team=Team 1)
+2024-06-02 23:56:19.641 [main] DirtyCheckingExample.main - student after first transaction after making changes: Student(id=1, name=John Doe, team=61d1a34a-0c4c-45cf-9d5c-58b9aa34e268)
+
+2024-06-02 23:56:19.641 [main] DirtyCheckingExample.main - starting second transaction
+2024-06-02 23:56:19.642 [main] DirtyCheckingExample.main - before committing second transaction
+Hibernate: update student set name=?,team=? where id=?
+2024-06-02 23:56:19.648 [main] DirtyCheckingExample.main - second transaction committed
+
+Hibernate: select s1_0.id,s1_0.name,s1_0.team from student s1_0 where s1_0.id=?
+2024-06-02 23:56:19.658 [main] DirtyCheckingExample.main - student after object detach: Student(id=1, name=John Doe, team=61d1a34a-0c4c-45cf-9d5c-58b9aa34e268)
+
+2024-06-02 23:56:19.659 [main] DirtyCheckingExample.main - student after object detach update: Student(id=1, name=John Doe, team=61d1a34a-0c4c-45cf-9d5c-58b9aa34e268)
+
+2024-06-02 23:56:19.660 [main] DirtyCheckingExample.main - student after object detach update transaction: Student(id=1, name=John Doe, team=61d1a34a-0c4c-45cf-9d5c-58b9aa34e268)
+```
+
+Exploring Hibernate's dirty check mechanism provides insight into its inner workings and highlights how it can lead to
+unexpected behavior in a program. Recognizing its operation is crucial for managing and mitigating any unforeseen
+consequences

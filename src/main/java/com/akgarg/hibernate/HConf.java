@@ -34,7 +34,7 @@ final class HConf {
                 JdbcSettings.JAKARTA_JDBC_PASSWORD, "root",
                 JdbcSettings.JAKARTA_JDBC_URL, "jdbc:mysql://127.0.0.1:3306/hibernate_learning",
                 JdbcSettings.SHOW_SQL, true,
-                JdbcSettings.FORMAT_SQL, true,
+                JdbcSettings.FORMAT_SQL, false,
                 SchemaToolingSettings.HBM2DDL_AUTO, "create",
                 CacheSettings.USE_SECOND_LEVEL_CACHE, false
         );
